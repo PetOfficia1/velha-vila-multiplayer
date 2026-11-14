@@ -1,0 +1,17 @@
+{
+  "name": "velha-vila-multiplayer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Servidor WebSocket compartilhado para testes do Velha Vila",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
