@@ -1,3 +1,4 @@
+import { createWorld } from './multiplayer/world.js';
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -8,6 +9,15 @@ const PORT = Number(process.env.PORT || 10000);
 const WORLD = 'velha-vila-principal';
 const MAX_PLAYERS = 150;
 const clients = new Map();
+const world = createWorld();
+const maps = new Set(['house','surface','cave1','cave2','cave3','castle']);
+function updateState(player, event) {
+  for (const key of ['x','y']) {
+    if (Number.isFinite(event[key]) && Math.abs(event[key]) <= 100000) player[key] = event[key];
+  }
+  if (maps.has(event.zone)) player.zone = event.zone;
+  if (Number.isSafeInteger(event.level) && event.level > 0) player.level = Math.min(event.level, 1e9);
+}
 const bornAt = Date.now();
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
   .split(',').map(x => x.trim()).filter(Boolean);
@@ -84,13 +94,35 @@ wss.on('connection', ws => {
       const name = cleanName(event.name);
       if (!name) return send(ws, { type: 'error', message: 'Informe um nome válido' });
       const p = { id, name, x: coordinate(event.x, 10), y: coordinate(event.y, 10), world: WORLD };
+      connection.shared = event.sharedMobs === true;
+      if (connection.shared) {
+        Object.assign(p,{zone:'house',level:1,family:cleanName(event.family),gender:cleanName(event.gender)});
+        updateState(p,event);
+      }
       connection.player = p;
+      if (connection.shared) send(ws,{type:'welcome',you:id,players:onlinePlayers(),sharedMobs:true});
       send(ws, { type: 'snapshot', you: id, world: WORLD, players: onlinePlayers() });
       broadcast({ type: 'player_joined', player: p }, ws);
       return;
     }
 
     if (!connection.player) return send(ws, { type: 'error', message: 'Entre primeiro com join' });
+    if(connection.shared && event.type==='state') {
+      if(Date.now()-connection.lastMove<70) return;
+      connection.lastMove=Date.now();
+      updateState(connection.player,event);
+      broadcast({type:'state',player:connection.player},ws);
+      return;
+    }
+    if(connection.shared && event.type==='mob_hit') {
+      const shares=world.hit(connection.player,event,Date.now());
+      for(const share of shares || []) {
+        const receiver=clients.get(share.id);
+        if(receiver) send(receiver.ws,{type:'mob_reward',id:event.id,generation:event.generation,
+          xp:share.xp,finisher:share.id===id});
+      }
+      return;
+    }
     if (event.type === 'move') {
       // Apenas sincroniza posições. Ainda não valida mapa, velocidade ou colisões.
       const now = Date.now();
@@ -113,6 +145,22 @@ wss.on('connection', ws => {
   });
   ws.on('error', err => console.warn('WebSocket:', err.message));
 });
+
+setInterval(()=>{
+  const participants=[...clients.values()].filter(c=>c.shared && c.player);
+  if(!participants.length) return;
+  world.tick(participants.map(c=>c.player),Date.now(),(p,m)=>send(clients.get(p.id).ws,
+    {type:'mob_attack',id:m.id,zone:m.map,dmg:m.dmg,name:m.type}));
+  const views=new Map();
+  for(const c of participants) {
+    const zone=c.player.zone;
+    if(!views.has(zone)) views.set(zone,JSON.stringify(world.snapshot(zone)));
+    const view=views.get(zone);
+    if(c.lastZone===zone && c.lastView===view) continue;
+    c.lastZone=zone;c.lastView=view;
+    send(c.ws,{type:'mob_world',zone,mobs:JSON.parse(view)});
+  }
+},100).unref();
 
 const keepalive = setInterval(() => {
   for (const { ws, alive } of clients.values()) {
