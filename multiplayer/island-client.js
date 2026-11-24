@@ -74,6 +74,7 @@
     g.save();g.font='bold '+size+'px Georgia';g.textAlign='center';g.lineWidth=3;g.strokeStyle='#232b29';g.strokeText(label,x,y);g.fillStyle='#fff1c8';g.fillText(label,x,y);g.restore();
   }
   function roof(x,y,color){
+    if(vvHasArt()){vvShadow(x,y+19,55,10);vvSprite('house',x,y+23,132,123);return}
     ctx.fillStyle='#594b3c';ctx.fillRect(x-35,y-30,70,51);
     ctx.fillStyle='#d3b78a';ctx.fillRect(x-30,y-26,60,43);
     ctx.fillStyle=color;ctx.beginPath();ctx.moveTo(x-45,y-28);ctx.lineTo(x-26,y-56);ctx.lineTo(x+27,y-56);ctx.lineTo(x+45,y-28);ctx.closePath();ctx.fill();
@@ -94,6 +95,31 @@
     const tone=k?.land || ({fort:'#aa996f',bridge:'#93724e',sea:'#407680'})[ground];
     const info={tone,k,ground};groundCache.set(key,info);return info;
   }
+  const surfaces=new Map();
+  function surfacePattern(kind){
+    if(!surfaces.has(kind)){
+      const texture=kind==='bridge'?vvTile('wood'):vvMasonry(kind);
+      surfaces.set(kind,ctx.createPattern(texture,'repeat'));
+    }
+    return surfaces.get(kind);
+  }
+  function terrainTile(cell,room,open,k,x,y,noise){
+    if(room && !room.site.peak){
+      ctx.fillStyle=surfacePattern(open?'cave':'castle');ctx.fillRect(x,y,40,40);
+      if(!open){ctx.fillStyle='rgba(14,14,24,.58)';ctx.fillRect(x,y,40,40)}
+      return;
+    }
+    const realm=cell?.k || k;
+    if(realm){
+      ctx.drawImage(vvTile(realm.index===2?'road':'grass',Math.floor(noise*4)),x,y,40.2,40.2);
+      const tint=realm.index===1?'rgba(216,235,240,.73)':realm.index===2?'rgba(140,62,30,.31)':null;
+      if(tint){ctx.fillStyle=tint;ctx.fillRect(x,y,40,40)}
+      if(room&&!open){ctx.fillStyle=surfacePattern('castle');ctx.fillRect(x,y,40,40)}
+    }else if(cell.ground==='sea'){
+      ctx.fillStyle='#376879';ctx.fillRect(x,y,40.2,40.2);ctx.strokeStyle='#508395';
+      ctx.beginPath();ctx.moveTo(x+2,y+13+noise*8);ctx.quadraticCurveTo(x+12,y+10+noise*8,x+20,y+14+noise*8);ctx.stroke();
+    }else{ctx.fillStyle=surfacePattern(cell.ground==='bridge'?'bridge':'road');ctx.fillRect(x,y,40,40)}
+  }
   const oldDraw=vvDrawWorld;
   vvDrawWorld=function(){
     const map=vvCMap();if(!A.owns(map))return oldDraw();
@@ -103,24 +129,28 @@
     for(let j=Math.floor(cy/40);j<=Math.floor((cy+480)/40);j++)for(let i=Math.floor(cx/40);i<=Math.floor((cx+720)/40);i++){
       const x=i*40,y=j*40,noise=terrainHash(i,j,13),open=room?.grid.has(i+','+j);
       const cell=room?null:tileInfo(i,j);
-      ctx.fillStyle=room?(open?(room.site.peak?k.land:'#7e7163'):(room.site.peak?'#5c6068':'#343537')):cell.tone;ctx.fillRect(x,y,40.5,40.5);
-      ctx.fillStyle=room?(open?'#ffffff1b':'#ffffff11'):(cell.k?cell.k.light:'#ffffff38');
-      if(cell?.ground==='bridge'){ctx.fillStyle='#624d38';ctx.fillRect(x,y+18,40,2);ctx.fillRect(x,y+38,40,2)}
-      else{ctx.fillRect(x+4+noise*17,y+8,cell?.ground==='sea'?14:4,2);ctx.fillRect(x+25,y+24+noise*9,6,2)}
+      terrainTile(cell,room,open,k,x,y,noise);
     }
     if(!room){
       // Keep decorative trails on land so coastlines and bridge crossings stay readable.
       for(const t of A.towns){
         const realm=A.kingdoms[t.k];
         if(Math.abs(t.x-p.x)>1350 || Math.abs(t.y-p.y)>1300)continue;
-        ctx.lineCap='round';ctx.lineWidth=18;ctx.strokeStyle=realm.index===1?'#bdd0cb':'#b2976d';
+        ctx.lineCap='round';ctx.lineWidth=32;ctx.strokeStyle=surfacePattern('road');
         for(const dest of [realm,...t.sites]){ctx.beginPath();ctx.moveTo(t.x,t.y+18);ctx.lineTo(dest.x,dest.y+12);ctx.stroke()}
       }
       for(let j=Math.floor(cy/115);j<=Math.ceil((cy+480)/115);j++)for(let i=Math.floor(cx/115);i<=Math.ceil((cx+720)/115);i++){
         const x=i*115+terrainHash(i,j,31)*80,y=j*115+terrainHash(i,j,32)*80,realm=A.island(x,y);
         if(!realm||A.towns.some(t=>Math.hypot(x-t.x,y-t.y)<155)||A.sites.some(t=>Math.hypot(x-t.x,y-t.y)<66))continue;
-        if(realm.index===0){ctx.fillStyle='#446344';ctx.fillRect(x-2,y-9,4,13);for(const [dx,dy,r] of [[-4,-11,6],[3,-12,8],[0,-19,6]]){ctx.fillStyle=dy===-19?'#678a51':'#4a7248';ctx.beginPath();ctx.arc(x+dx,y+dy,r,0,7);ctx.fill()}}
-        else{ctx.fillStyle=realm.index===1?'#d7e9e9':'#75513f';ctx.beginPath();ctx.moveTo(x-11,y);ctx.lineTo(x-4,y-12);ctx.lineTo(x+3,y-15);ctx.lineTo(x+10,y);ctx.fill()}
+        if(Math.hypot(x-realm.x,y-realm.y)<125)continue;
+        const onPath=A.towns.some(t=>t.k===realm.index && [realm,...t.sites].some(dest=>vvPointRoadDistance(x,y,t,dest)<35));
+        if(onPath)continue;
+        const seed=terrainHash(i,j,18),tree=seed>(realm.index===2?.85:.49);
+        if(!vvHasArt()){if(tree)vvTree(x,y,i+j);continue}
+        const size=tree?76+seed*64:34+seed*20;
+        const sprite=tree?(realm.index===1?'spruce':seed>.8?'oak':'spruce'):(seed>.26?'berry':'sage');
+        vvShadow(x+3,y+3,size*.22,size*.055);vvSprite(sprite,x,y+8,size*(sprite==='spruce'?.8:1),size);
+
       }
       for(const t of A.towns.filter(visible)){const realm=A.kingdoms[t.k];
         roof(t.x-88,t.y-18,realm.roof);roof(t.x+90,t.y-23,realm.roof);
@@ -129,8 +159,10 @@
       }
       A.sites.filter(visible).forEach(drawSite);
       for(const realm of A.kingdoms.filter(visible)){
+        if(vvHasArt()){vvShadow(realm.x,realm.y+13,93,14);vvSprite('castle',realm.x,realm.y+18,226,197)}else{
         ctx.fillStyle='#79756b';ctx.fillRect(realm.x-47,realm.y-44,94,49);
         for(const dx of [-40,40]){ctx.fillRect(realm.x+dx-12,realm.y-65,24,65);flag(realm.x+dx,realm.y-65,realm.roof)}
+        }
         print(ctx,realm.castle,realm.x,realm.y+24);
       }
       for(const b of A.bridges.filter(visible)){flag(b.x,b.y,'#c79b56');print(ctx,'Zona de Guerra',b.x,b.y+22)}
@@ -140,6 +172,7 @@
     for(const m of mobs.filter(vvCSameMap))if(visible(m))vvMob(m);
     vvDrawOtherPlayers(map);vvCharacter(p.x,p.y,p.family,p.gender,p.weapon,route.length>0,false,p.shield,true);
     ctx.restore();
+    vvLighting(false);
     const nearest=map===A.sea&&A.towns.filter(t=>t.k===A.island(p.x,p.y)?.index).sort((a,b)=>Math.hypot(a.x-p.x,a.y-p.y)-Math.hypot(b.x-p.x,b.y-p.y))[0];
     print(ctx,nearest?nearest.region+' · '+vvCMapLabel():vvCMapLabel(),360,26,14);
   };
