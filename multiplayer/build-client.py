@@ -10,7 +10,8 @@ parser.add_argument('endpoint')
 parser.add_argument('output', type=Path)
 args = parser.parse_args()
 url = urlparse(args.endpoint)
-if url.scheme not in ('ws', 'wss') or not url.hostname or url.path != '/ws':
+solo = args.endpoint == 'offline'
+if not solo and (url.scheme not in ('ws', 'wss') or not url.hostname or url.path != '/ws'):
     parser.error('Expected a ws:// or wss:// endpoint ending in /ws')
 page = args.index.read_text()
 def replace(old, new):
@@ -18,6 +19,8 @@ def replace(old, new):
     if page.count(old) != 1:
         raise ValueError('Unexpected game version at ' + old[:50])
     page = page.replace(old, new)
+if solo:
+    replace("if(!/^https?:$/.test(location.protocol)){", "if(true){")
 replace("new WebSocket(proto+'//'+location.host+'/api/ws')", 'new WebSocket('+json.dumps(args.endpoint)+')')
 replace("...vvPlayerState(),type:'join'", "...vvPlayerState(),sharedMobs:true,type:'join'")
 replace("if(message.type==='welcome'){", "receiveCreatureEvent(message);\n  if(message.type==='welcome'){")
@@ -41,4 +44,8 @@ replace('<script src="corrigida.js"></script>', """<script src="corrigida.js"></
 const localEnsureMap=vvCEnsureMap;
 vvCEnsureMap=function(map){if(!sharedSession)localEnsureMap(map)};
 </script>""")
+scripts = Path(__file__).parent
+islands = (scripts/'archipelago.js').read_text().replace('export const archipelago', 'const archipelago')
+integration = (scripts/'island-client.js').read_text()
+replace('</body></html>', '<script>'+islands+'\n'+integration+'</script></body></html>')
 args.output.write_text(page)

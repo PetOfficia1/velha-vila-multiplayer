@@ -1,3 +1,4 @@
+import { archipelago } from './multiplayer/archipelago.js';
 import { createWorld } from './multiplayer/world.js';
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
@@ -15,7 +16,7 @@ function updateState(player, event) {
   for (const key of ['x','y']) {
     if (Number.isFinite(event[key]) && Math.abs(event[key]) <= 100000) player[key] = event[key];
   }
-  if (maps.has(event.zone)) player.zone = event.zone;
+  if (maps.has(event.zone) || archipelago.owns(event.zone)) player.zone = event.zone;
   if (Number.isSafeInteger(event.level) && event.level > 0) player.level = Math.min(event.level, 1e9);
 }
 const bornAt = Date.now();

@@ -1,16 +1,18 @@
 import { readFileSync } from 'node:fs';
 const creatures = JSON.parse(readFileSync(new URL('./creatures.json', import.meta.url), 'utf8'));
+import { archipelago } from './archipelago.js';
 import { surfaceSolid } from './terrain.js';
 
 const distance = (a,b) => Math.hypot(a.x-b.x,a.y-b.y);
 function blocked(map, x, y) {
+  if (archipelago.owns(map)) return archipelago.solid(map,x,y,13);
   if (map === 'surface') return surfaceSolid(x,y,13) || Math.hypot(x-550,y-350)<24;
   return x<53 || x>907 || y<53 || y>667;
 }
 
 export function createWorld() {
   const mobs = [];
-  for (const def of creatures) {
+  for (const def of [...creatures,...archipelago.creatures]) {
     let x=def.x, y=def.y;
     for (let i=0; blocked(def.map,x,y) || mobs.some(m=>m.map===def.map && distance(m,{x,y})<44); i++) {
       const radius=12*Math.sqrt(i+1), angle=i*2.4;
