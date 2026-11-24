@@ -48,4 +48,24 @@ scripts = Path(__file__).parent
 islands = (scripts/'archipelago.js').read_text().replace('export const archipelago', 'const archipelago')
 integration = (scripts/'island-client.js').read_text()
 replace('</body></html>', '<script>'+islands+'\n'+integration+'</script></body></html>')
+# Both local animations and remote equipment share the merchant's foot anchor.
+scale_script = """
+const vvPlayerScale = 1.48;
+const vvActorBeforePlayerScale = vvCharacter;
+vvCharacter = function(x,y,family,gender,weapon,move=false,enemy=false,shield=null,hero=false,remote=false){
+  if(!hero && !remote) return vvActorBeforePlayerScale(x,y,family,gender,weapon,move,enemy,shield,hero);
+  ctx.save();
+  try {
+    ctx.translate(x,y+16);
+    ctx.scale(vvPlayerScale,vvPlayerScale);
+    ctx.translate(-x,-y-16);
+    return vvActorBeforePlayerScale(x,y,family,gender,weapon,move,enemy,shield,hero);
+  } finally { ctx.restore(); }
+};
+"""
+replace("vvCharacter(q.x,q.y,q.family,q.gender,q.weapon,false,false,q.shield);",
+        "vvCharacter(q.x,q.y,q.family,q.gender,q.weapon,false,false,q.shield,false,true);")
+replace("ctx.strokeText(label,q.x,q.y-54);","ctx.strokeText(label,q.x,q.y-80);")
+replace("ctx.fillText(label,q.x,q.y-54);","ctx.fillText(label,q.x,q.y-80);")
+replace('</body></html>', '<script>'+scale_script+'</script></body></html>')
 args.output.write_text(page)
